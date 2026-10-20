@@ -1,4 +1,5 @@
 import socket
+from urllib.parse import urlsplit
 
 HOST = "127.0.0.1"
 PORT = 8081
@@ -38,13 +39,15 @@ def parse_request(data):
     if len(parts) != 3 or not all(parts):
         raise ValueError("Invalid request line")
 
-    method, path, version = parts
+    method, target, version = parts
 
     if version != "HTTP/1.1":
         raise ValueError("Unsupported HTTP version")
 
-    if not path.startswith("/"):
+    if not target.startswith("/") or target.startswith("//"):
         raise ValueError("Invalid request path")
+
+    path = urlsplit(target).path
 
     headers = {}
 
@@ -63,10 +66,26 @@ def parse_request(data):
 
         headers[name] = value.strip()
 
-    if "host" not in headers:
+    if not headers.get("host"):
         raise ValueError("Missing Host header")
 
     return method, path, version, headers
+
+
+def route_request(method, path):
+    if method != "GET":
+        return 405, "Method Not Allowed"
+
+    routes = {
+        "/": "Welcome to Tiny-HTTP!",
+        "/hello": "Hello, World!",
+        "/health": "OK",
+    }
+
+    if path in routes:
+        return 200, routes[path]
+
+    return 404, "404 Not Found"
 
 
 def create_response(status, body):
@@ -75,6 +94,7 @@ def create_response(status, body):
     reasons = {
         200: "OK",
         400: "Bad Request",
+        404: "Not Found",
         405: "Method Not Allowed",
         408: "Request Timeout",
         431: "Request Header Fields Too Large",
@@ -103,16 +123,8 @@ def handle_connection(connection):
         print(f"Version: {version}")
         print(f"Headers: {headers}")
 
-        if method != "GET":
-            response = create_response(405, "Method Not Allowed")
-        else:
-            body = (
-                f"Method: {method}\n"
-                f"Path: {path}\n"
-                f"Version: {version}\n"
-                f"Headers: {headers}\n"
-            )
-            response = create_response(200, body)
+        status, body = route_request(method, path)
+        response = create_response(status, body)
 
     except socket.timeout:
         response = create_response(408, "Request Timeout")
